@@ -28,6 +28,17 @@ export default function InvoiceUpload() {
     setOcrLoading(true);
     setUploadError(undefined);
     setUploadedFileName(file.name);
+    setOcrConfidence(undefined);
+    setFormValues({
+      invoiceNumber: '',
+      vendorName: '',
+      invoiceDate: '',
+      dueDate: '',
+      subtotal: 0,
+      taxRate: 18,
+      taxAmount: 0,
+      total: 0,
+    });
 
     try {
       const extracted = await uploadInvoice(file);
