@@ -54,11 +54,31 @@ export async function uploadInvoice(file: File): Promise<ExtractedInvoice> {
   });
   
   const data = response.data;
+  if (!data.success) {
+    throw new Error(data.error || 'Could not read this invoice. Try a clearer PDF or image, or enter the details manually.');
+  }
+
   const parsed = data.parsedData || {};
+  const extractedFieldCount = [
+    parsed.invoiceNumber,
+    parsed.vendor,
+    parsed.vendorName,
+    parsed.date,
+    parsed.invoiceDate,
+    parsed.dueDate,
+    parsed.subtotal,
+    parsed.taxRate,
+    parsed.taxAmount,
+    parsed.total,
+  ].filter((value) => value !== undefined && value !== null && value !== '').length;
+  if (extractedFieldCount === 0) {
+    throw new Error('Text was found, but no invoice details could be identified. Try a clearer file or enter the details manually.');
+  }
+
   return {
     invoiceNumber: parsed.invoiceNumber || '',
     vendorName: parsed.vendor || parsed.vendorName || '',
-    invoiceDate: parsed.date || parsed.invoiceDate || new Date().toISOString().split('T')[0],
+    invoiceDate: parsed.date || parsed.invoiceDate || '',
     dueDate: parsed.dueDate || '',
     subtotal: Number(parsed.subtotal) || 0,
     taxRate: Number(parsed.taxRate) || 18,
