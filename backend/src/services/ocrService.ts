@@ -3,7 +3,7 @@
 // parsing invoice numbers, vendor names, dates, subtotals, taxes, and totals.
 
 import { createWorker } from 'tesseract.js';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Invoice, OCRResult } from '../types/index.js';
 
@@ -34,24 +34,38 @@ export async function extractFromImage(
       const pageTexts: string[] = [];
       let confidenceTotal = 0;
 
-      for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
-        const page = await document.getPage(pageNumber);
-        const viewport = page.getViewport({ scale: 2 });
-        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-        const context = canvas.getContext('2d');
-        await page.render({ canvasContext: context as any, viewport } as any).promise;
-        const result = await worker.recognize(canvas.toBuffer('image/png'));
-        pageTexts.push(result.data.text || '');
-        confidenceTotal += result.data.confidence || 0;
+      try {
+        for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+          const page = await document.getPage(pageNumber);
+          const embeddedText = await extractPdfPageText(page);
+
+          if (embeddedText.trim().length >= 5) {
+            pageTexts.push(embeddedText);
+            confidenceTotal += 95;
+            continue;
+          }
+
+          const viewport = page.getViewport({ scale: 2.5 });
+          const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+          const context = canvas.getContext('2d');
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: context as any, viewport } as any).promise;
+          const result = await recognizeWithPreprocessing(worker, canvas.toBuffer('image/png'));
+          pageTexts.push(result.text);
+          confidenceTotal += result.confidence;
+          await page.cleanup();
+        }
+      } finally {
+        await document.destroy();
       }
 
       text = pageTexts.join('\n');
       confidence = document.numPages ? confidenceTotal / document.numPages / 100 : 0;
-      await document.destroy();
     } else {
-      const ret = await worker.recognize(buffer);
-      text = ret.data.text || '';
-      confidence = (ret.data.confidence || 0) / 100;
+      const result = await recognizeWithPreprocessing(worker, buffer);
+      text = result.text;
+      confidence = result.confidence / 100;
     }
 
     await worker.terminate();
@@ -91,6 +105,101 @@ export async function extractFromImage(
       error: `OCR extraction failed: ${msg}. You can enter details manually.`,
     };
   }
+}
+
+async function extractPdfPageText(page: any): Promise<string> {
+  const content = await page.getTextContent();
+  const rows = new Map<number, Array<{ x: number; text: string }>>();
+
+  for (const item of content.items as any[]) {
+    if (typeof item.str !== 'string' || !item.str.trim()) continue;
+    const transform = item.transform as number[] | undefined;
+    const x = transform?.[4] || 0;
+    const y = transform?.[5] || 0;
+    const rowKey = Math.round(y / 2);
+    const row = rows.get(rowKey) || [];
+    row.push({ x, text: item.str.trim() });
+    rows.set(rowKey, row);
+  }
+
+  return [...rows.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([, row]) => row.sort((a, b) => a.x - b.x).map((item) => item.text).join(' '))
+    .join('\n');
+}
+
+async function recognizeWithPreprocessing(worker: any, imageBuffer: Buffer): Promise<{ text: string; confidence: number }> {
+  const first = await worker.recognize(imageBuffer);
+  const firstText = first.data.text || '';
+  const firstConfidence = first.data.confidence || 0;
+
+  if (firstText.trim().length >= 20 && firstConfidence >= 45) {
+    return { text: firstText, confidence: firstConfidence };
+  }
+
+  const image = await loadImage(imageBuffer);
+  const scale = Math.min(2, 4000 / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  const pixels = context.getImageData(0, 0, width, height);
+  const threshold = otsuThreshold(pixels.data);
+  for (let i = 0; i < pixels.data.length; i += 4) {
+    const gray = Math.round(0.299 * pixels.data[i] + 0.587 * pixels.data[i + 1] + 0.114 * pixels.data[i + 2]);
+    const value = gray > threshold ? 255 : 0;
+    pixels.data[i] = value;
+    pixels.data[i + 1] = value;
+    pixels.data[i + 2] = value;
+    pixels.data[i + 3] = 255;
+  }
+  context.putImageData(pixels, 0, 0);
+
+  const second = await worker.recognize(canvas.toBuffer('image/png'));
+  const secondText = second.data.text || '';
+  const secondConfidence = second.data.confidence || 0;
+  const firstScore = firstConfidence * Math.min(firstText.trim().length / 40, 1);
+  const secondScore = secondConfidence * Math.min(secondText.trim().length / 40, 1);
+  return secondScore > firstScore
+    ? { text: secondText, confidence: secondConfidence }
+    : { text: firstText, confidence: firstConfidence };
+}
+
+function otsuThreshold(data: Uint8ClampedArray): number {
+  const histogram = new Array<number>(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    histogram[gray] += 1;
+  }
+
+  const pixelCount = data.length / 4;
+  let total = 0;
+  for (let i = 0; i < 256; i++) total += i * histogram[i];
+
+  let backgroundWeight = 0;
+  let backgroundSum = 0;
+  let bestVariance = -1;
+  let threshold = 180;
+
+  for (let i = 0; i < 256; i++) {
+    backgroundWeight += histogram[i];
+    if (!backgroundWeight) continue;
+    const foregroundWeight = pixelCount - backgroundWeight;
+    if (!foregroundWeight) break;
+    backgroundSum += i * histogram[i];
+    const backgroundMean = backgroundSum / backgroundWeight;
+    const foregroundMean = (total - backgroundSum) / foregroundWeight;
+    const variance = backgroundWeight * foregroundWeight * (backgroundMean - foregroundMean) ** 2;
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      threshold = i;
+    }
+  }
+  return Math.max(80, Math.min(220, threshold));
 }
 
 /**
