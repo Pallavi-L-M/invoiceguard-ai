@@ -1,0 +1,28 @@
+{
+  "name": "invoiceguard-ai-backend",
+  "version": "1.0.0",
+  "description": "InvoiceGuard AI - Intelligent Invoice Verification Backend",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "multer": "^1.4.5-lts.1",
+    "tesseract.js": "^5.0.0",
+    "@vectorize-io/hindsight-client": "latest",
+    "@google/generative-ai": "latest",
+    "uuid": "^9.0.0",
+    "dotenv": "^16.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/multer": "^1.4.11",
+    "@types/uuid": "^9.0.7",
+    "tsx": "^4.7.0"
+  }
+}
