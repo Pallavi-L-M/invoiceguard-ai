@@ -224,15 +224,21 @@ function parseInvoiceText(text: string): Partial<Invoice> {
 
   // 2. Dates
   // DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY, DD MMM YYYY
-  const dateRegex = /(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(\d{4}[/-]\d{1,2}[/-]\d{1,2})|(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+\d{2,4})/i;
+  const dateRegex = /(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(\d{4}[/-]\d{1,2}[/-]\d{1,2})|(\d{1,2}[\s-]+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,-]+\d{2,4})/gi;
+  const dateLabelRegex = /\b(payment\s+due(?:\s+date)?|due\s+date|payable(?:\s+date)?|invoice\s+date|date\s+of\s+invoice|due|date)\b/gi;
   for (const line of lines) {
-    const match = line.match(dateRegex);
-    if (!match) continue;
-    const normalized = normalizeDate(match[0]);
-    if (/due|payable/i.test(line) && !result.dueDate) {
-      result.dueDate = normalized;
-    } else if (/invoice\s*date|date\s*of\s*invoice|^date\b/i.test(line) && !result.date) {
-      result.date = normalized;
+    for (const match of line.matchAll(dateRegex)) {
+      const dateIndex = match.index || 0;
+      const precedingText = line.slice(0, dateIndex);
+      const labels = [...precedingText.matchAll(dateLabelRegex)];
+      const lastLabel = labels[labels.length - 1]?.[0] || '';
+      const normalized = normalizeDate(match[0]);
+
+      if (/due|payable/i.test(lastLabel) && !result.dueDate) {
+        result.dueDate = normalized;
+      } else if (lastLabel && !result.date) {
+        result.date = normalized;
+      }
     }
   }
 
