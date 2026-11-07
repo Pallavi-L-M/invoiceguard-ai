@@ -1,0 +1,10 @@
+{
+  "name": "invoiceguard-ai",
+  "version": "1.0.0",
+  "description": "InvoiceGuard AI - Intelligent Invoice Verification & Learning Agent with Vectorize Hindsight Persistent Memory",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "build": "npm install --prefix backend && npm install --prefix frontend && npm run build --prefix frontend",
+    "start": "npm start --prefix backend"
+  }
+}

@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: invoiceguard-ai
+    env: node
+    plan: free
+    buildCommand: "npm run build"
+    startCommand: "npm start"
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: HINDSIGHT_API_URL
+        value: http://localhost:8888
+      - key: HINDSIGHT_BANK_ID
+        value: invoiceguard

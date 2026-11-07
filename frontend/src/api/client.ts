@@ -11,8 +11,10 @@ import type {
   ReportData,
 } from '../types';
 
+const apiBaseUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:3001/api' : '/api');
+
 const api = axios.create({
-  baseURL: 'http://localhost:3001/api', // direct to backend port in development
+  baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },

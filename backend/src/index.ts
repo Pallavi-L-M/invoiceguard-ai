@@ -4,6 +4,10 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
 import invoicesRouter from './routes/invoices.js';
 import hindsightRouter from './routes/hindsight.js';
 import assistantRouter from './routes/assistant.js';
@@ -12,13 +16,17 @@ import reportsRouter from './routes/reports.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { initializeDemoData } from './services/demoData.js';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(
   cors({
-    origin: '*', // Allow development frontend
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   })
@@ -43,6 +51,16 @@ app.use('/api/hindsight', hindsightRouter);
 app.use('/api/assistant', assistantRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/reports', reportsRouter);
+
+// Serve Frontend Production Build if present
+if (fs.existsSync(frontendDist)) {
+  console.log(`📦 Serving production frontend build from: ${frontendDist}`);
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
 
 // Global Error Handler
 app.use(errorHandler);
