@@ -3,6 +3,8 @@
 // parsing invoice numbers, vendor names, dates, subtotals, taxes, and totals.
 
 import { createWorker } from 'tesseract.js';
+import { createCanvas } from '@napi-rs/canvas';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { Invoice, OCRResult } from '../types/index.js';
 
 export async function extractFromImage(
@@ -19,28 +21,38 @@ export async function extractFromImage(
         extractedText: '',
         parsedData: {},
         confidence: 0,
-        error: `Unsupported file format: ${mimeType}. Supported formats: JPG, PNG, TIFF.`,
-      };
-    }
-
-    // PDF files cannot directly be fed to Tesseract image worker without pdf2image;
-    // check if it's PDF
-    if (mimeType === 'application/pdf') {
-      // In a lightweight MVP without native poppler binaries,
-      // return a polite, honest notice so user can input or use image format
-      return {
-        success: false,
-        extractedText: '',
-        parsedData: {},
-        confidence: 0,
-        error: 'Direct PDF OCR requires rendering binaries. Please upload as PNG/JPG or enter details in the manual form below.',
+        error: `Unsupported file format: ${mimeType}. Supported formats: PDF, JPG, PNG, TIFF.`,
       };
     }
 
     worker = await createWorker('eng');
-    const ret = await worker.recognize(buffer);
-    const text = ret.data.text || '';
-    const confidence = (ret.data.confidence || 0) / 100;
+    let text = '';
+    let confidence = 0;
+
+    if (mimeType === 'application/pdf') {
+      const document = await getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
+      const pageTexts: string[] = [];
+      let confidenceTotal = 0;
+
+      for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
+        const page = await document.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 2 });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const context = canvas.getContext('2d');
+        await page.render({ canvasContext: context as any, viewport } as any).promise;
+        const result = await worker.recognize(canvas.toBuffer('image/png'));
+        pageTexts.push(result.data.text || '');
+        confidenceTotal += result.data.confidence || 0;
+      }
+
+      text = pageTexts.join('\n');
+      confidence = document.numPages ? confidenceTotal / document.numPages / 100 : 0;
+      await document.destroy();
+    } else {
+      const ret = await worker.recognize(buffer);
+      text = ret.data.text || '';
+      confidence = (ret.data.confidence || 0) / 100;
+    }
 
     await worker.terminate();
     worker = null;
@@ -82,20 +94,19 @@ export async function extractFromImage(
 }
 
 /**
- * Heuristic parsing of invoice text
- * Extracts invoice number, vendor, dates, and amounts without fabricating values.
+ * Heuristic parsing of invoice text. Missing values are left blank rather than guessed.
  */
 function parseInvoiceText(text: string): Partial<Invoice> {
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  const lines = text.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l.length > 0);
   const result: Partial<Invoice> = {};
 
   // 1. Invoice Number patterns
-  const invNumberRegex = /(?:invoice|inv|bill|ref)[\s#.:-]*([A-Z0-9-]{3,20})/i;
+  const invNumberRegex = /(?:invoice\s*(?:number|no\.?|#|id)?|inv\.?\s*(?:no\.?|#)|bill\s*(?:no\.?|#)|reference\s*(?:no\.?|#)?)[\s:.-]*([A-Z0-9][A-Z0-9/-]{2,24})/i;
   for (const line of lines) {
     const match = line.match(invNumberRegex);
     if (match && match[1]) {
       // Filter out common false matches
-      if (!['DATE', 'TOTAL', 'DUE', 'CASH', 'PAID'].includes(match[1].toUpperCase())) {
+      if (!['DATE', 'TOTAL', 'DUE', 'CASH', 'PAID', 'NUMBER'].includes(match[1].toUpperCase())) {
         result.invoiceNumber = match[1].trim();
         break;
       }
@@ -106,23 +117,27 @@ function parseInvoiceText(text: string): Partial<Invoice> {
   // DD/MM/YYYY, YYYY-MM-DD, DD-MM-YYYY, DD MMM YYYY
   const dateRegex = /(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(\d{4}[/-]\d{1,2}[/-]\d{1,2})|(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\s,]+\d{2,4})/i;
   for (const line of lines) {
-    if (/date/i.test(line)) {
-      const match = line.match(dateRegex);
-      if (match && !result.date) {
-        result.date = normalizeDate(match[0]);
-      } else if (match && /due/i.test(line) && !result.dueDate) {
-        result.dueDate = normalizeDate(match[0]);
-      }
+    const match = line.match(dateRegex);
+    if (!match) continue;
+    const normalized = normalizeDate(match[0]);
+    if (/due|payable/i.test(line) && !result.dueDate) {
+      result.dueDate = normalized;
+    } else if (/invoice\s*date|date\s*of\s*invoice|^date\b/i.test(line) && !result.date) {
+      result.date = normalized;
     }
   }
 
-  // 3. Vendor Name (often near the top 5 lines)
-  for (let i = 0; i < Math.min(5, lines.length); i++) {
-    const line = lines[i];
-    // Skip if it looks like a header keyword or date
-    if (!/(invoice|bill to|ship to|date|tax invoice|receipt)/i.test(line) && line.length > 3 && line.length < 50) {
-      result.vendor = line;
-      break;
+  // 3. Vendor Name, preferring an explicit supplier/vendor label.
+  const vendorLabelIndex = lines.findIndex((line) => /^(?:vendor|supplier|seller|from)\s*[:#-]/i.test(line));
+  if (vendorLabelIndex >= 0) {
+    const vendorLabel = lines[vendorLabelIndex].replace(/^(?:vendor|supplier|seller|from)\s*[:#-]\s*/i, '').trim();
+    result.vendor = vendorLabel || lines[vendorLabelIndex + 1] || '';
+  } else {
+    for (const line of lines.slice(0, 8)) {
+      if (!/(invoice|bill to|ship to|date|tax invoice|receipt|gstin|phone|email|www\.)/i.test(line) && line.length > 3 && line.length < 60 && !/\d{4,}/.test(line)) {
+        result.vendor = line;
+        break;
+      }
     }
   }
 
@@ -136,27 +151,28 @@ function parseInvoiceText(text: string): Partial<Invoice> {
     }
   }
 
-  // 5. Currency / Amounts
-  // Look for Subtotal, Tax, Total
+  // 5. Currency / Amounts. Capture values after field labels to avoid using
+  // unrelated numbers such as invoice IDs or dates as monetary amounts.
   for (const line of lines) {
-    const amountMatch = line.match(/(?:₹|INR|Rs\.?|USD|\$)?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})|[0-9]+(?:\.[0-9]{1,2})?)/);
-    
-    if (amountMatch && amountMatch[1]) {
-      const numVal = parseFloat(amountMatch[1].replace(/,/g, ''));
-      if (!isNaN(numVal) && numVal > 0) {
-        if (/(?:total amount|grand total|net total|balance due|total)/i.test(line) && !result.total) {
+    const amounts = [...line.matchAll(/[0-9][0-9,]*(?:\.\d{1,2})?/g)]
+      .filter((match) => !/^\s*%/.test(line.slice((match.index || 0) + match[0].length)));
+    const amountMatch = amounts[amounts.length - 1];
+    if (amountMatch?.[0]) {
+      const numVal = parseFloat(amountMatch[0].replace(/,/g, ''));
+      if (Number.isFinite(numVal) && numVal > 0) {
+        if (/(?:grand\s*total|net\s*total|total\s*amount|balance\s*due|amount\s*due|^total\b)/i.test(line) && !result.total) {
           result.total = numVal;
-        } else if (/(?:subtotal|sub-total|sub total|taxable value)/i.test(line) && !result.subtotal) {
+        } else if (/(?:sub[- ]?total|taxable\s*value|^net\s*amount\b)/i.test(line) && !result.subtotal) {
           result.subtotal = numVal;
-        } else if (/(?:tax|gst|vat|cgst|sgst)/i.test(line) && !result.taxAmount && !line.includes('%')) {
+        } else if (/(?:tax\b|gst\b|cgst|sgst|igst|vat\b)/i.test(line) && !result.taxAmount) {
           result.taxAmount = numVal;
         }
       }
     }
 
-    // Tax rate percentage check
-    const rateMatch = line.match(/(\d{1,2}(?:\.\d{1,2})?)\s*%/);
-    if (rateMatch && rateMatch[1] && !result.taxRate) {
+    // Prefer a labeled rate; only use a percentage on a tax line.
+    const rateMatch = line.match(/(?:tax|gst|vat)?\s*(\d{1,2}(?:\.\d{1,2})?)\s*%/i);
+    if (rateMatch?.[1] && !result.taxRate && /(tax|gst|vat|%)/i.test(line)) {
       const rate = parseFloat(rateMatch[1]);
       if (rate >= 0 && rate <= 40) {
         result.taxRate = rate;
@@ -169,10 +185,21 @@ function parseInvoiceText(text: string): Partial<Invoice> {
 
 function normalizeDate(raw: string): string {
   try {
-    const parsed = new Date(raw);
-    if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString().split('T')[0];
+    const iso = raw.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+    if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+    const numeric = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+    if (numeric) {
+      let [, first, second, year] = numeric;
+      let day = Number(first);
+      let month = Number(second);
+      if (month > 12) [day, month] = [month, day];
+      if (year.length === 2) year = `20${year}`;
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
     }
+    const parsed = new Date(raw);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
   } catch {}
   return raw;
 }
