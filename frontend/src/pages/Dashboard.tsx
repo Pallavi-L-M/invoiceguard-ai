@@ -208,7 +208,7 @@ export default function Dashboard() {
           </div>
 
           <div className="h-64">
-            {stats?.errorCategories && (
+            {stats?.errorCategories && stats.errorCategories.some((c) => c.count > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={stats.errorCategories} layout="vertical" margin={{ left: 20, right: 20 }}>
                   <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} />
@@ -220,6 +220,14 @@ export default function Dashboard() {
                   <Bar dataKey="count" fill="#6366F1" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl">
+                <AlertTriangle className="h-8 w-8 text-amber-500 mb-2 opacity-60" />
+                <p className="text-xs font-semibold text-slate-700">No Anomaly Flags Detected Yet</p>
+                <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                  Upload an invoice or run verification on pending cases to track risk frequency.
+                </p>
+              </div>
             )}
           </div>
 

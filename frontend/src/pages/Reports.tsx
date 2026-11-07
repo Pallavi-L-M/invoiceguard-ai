@@ -149,7 +149,7 @@ export default function Reports() {
           <h2 className="text-sm font-bold text-slate-800 mb-1">Anomaly Distribution by Category</h2>
           <p className="text-xs text-slate-500 mb-4">Relative frequency of flagged risks</p>
           <div className="h-64 flex items-center justify-center">
-            {data?.errorCategories && (
+            {data?.errorCategories && data.errorCategories.some((c: any) => c.count > 0) ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -170,6 +170,14 @@ export default function Reports() {
                   />
                 </PieChart>
               </ResponsiveContainer>
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center p-6 bg-slate-50 rounded-xl w-full h-full">
+                <AlertTriangle className="h-8 w-8 text-amber-500 mb-2 opacity-60" />
+                <p className="text-xs font-semibold text-slate-700">No Anomaly Flags Recorded Yet</p>
+                <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
+                  Run verification on flagged or pending invoices to populate the category distribution.
+                </p>
+              </div>
             )}
           </div>
           <div className="flex flex-wrap justify-center gap-3 pt-2 border-t border-slate-100">
