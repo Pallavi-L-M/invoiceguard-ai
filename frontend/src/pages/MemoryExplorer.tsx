@@ -15,6 +15,51 @@ import MemoryCard from '../components/MemoryCard';
 import { getMemories, recallMemories, retainManualMemory } from '../api/client';
 import type { Memory } from '../types';
 
+// These examples mirror the synthetic demonstration invoices shipped with the app.
+// They are shown only while Hindsight is offline and are never counted as retained memories.
+const demoMemories: Memory[] = [
+  {
+    id: 'demo-memory-abc',
+    date: '2026-10-20',
+    invoiceReference: 'INV-1001',
+    issueType: 'Approved Invoice',
+    outcome: 'success',
+    vendorName: 'ABC Technologies',
+    context: 'Monthly cloud infrastructure retainer was matched to purchase order PO-8821 and verified as authentic.',
+    keyLearnings: 'Confirm the invoice against its purchase order before approving payment.',
+  },
+  {
+    id: 'demo-memory-acme',
+    date: '2026-08-25',
+    invoiceReference: 'ACM-5511',
+    issueType: 'Duplicate Invoice',
+    outcome: 'success',
+    vendorName: 'Acme Hardware Corp',
+    context: 'A repeated server cooling chassis invoice was checked against ACM-5510.',
+    keyLearnings: 'Vendor accounting confirmed a duplicate entry; the repeated invoice was voided.',
+  },
+  {
+    id: 'demo-memory-global',
+    date: '2026-09-21',
+    invoiceReference: 'GLS-8820',
+    issueType: 'Tax Mismatch',
+    outcome: 'success',
+    vendorName: 'Global Supplies',
+    context: 'The tax amount on warehouse supplies was lower than the expected 18% calculation.',
+    keyLearnings: 'A vendor credit memo corrected the tax discrepancy before payment.',
+  },
+  {
+    id: 'demo-memory-vertex',
+    date: '2026-10-14',
+    invoiceReference: 'VTX-7719',
+    issueType: 'Missing Due Date',
+    outcome: 'success',
+    vendorName: 'Vertex Software Solutions',
+    context: 'The invoice did not include a payment due date.',
+    keyLearnings: 'The vendor confirmed net-30 terms before the invoice was resolved.',
+  },
+];
+
 export default function MemoryExplorer() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [stats, setStats] = useState({ total: 0, successCount: 0, failureCount: 0 });
@@ -33,6 +78,14 @@ export default function MemoryExplorer() {
   const [retainContent, setRetainContent] = useState('');
   const [retaining, setRetaining] = useState(false);
   const [retainMessage, setRetainMessage] = useState<string | null>(null);
+
+  const showingExamples = !connected && memories.length === 0;
+  const visibleMemories = showingExamples
+    ? demoMemories.filter((memory) => {
+        const query = searchQuery.trim().toLowerCase();
+        return !query || `${memory.invoiceReference} ${memory.issueType} ${memory.vendorName} ${memory.context} ${memory.keyLearnings}`.toLowerCase().includes(query);
+      })
+    : memories;
 
   const fetchAllMemories = async () => {
     setLoading(true);
@@ -230,23 +283,34 @@ export default function MemoryExplorer() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
             <History className="h-4 w-4 text-slate-500" />
-            Retained Experiences & Case Memories
+            {showingExamples ? 'Sample Experiences (Demo Examples)' : 'Retained Experiences & Case Memories'}
           </h2>
-          <span className="text-xs text-slate-400">{memories.length} item(s) retrieved</span>
+          <span className="text-xs text-slate-400">
+            {showingExamples ? `${visibleMemories.length} demo example(s) · not retained` : `${memories.length} item(s) retrieved`}
+          </span>
         </div>
 
-        {memories.length > 0 ? (
+        {visibleMemories.length > 0 ? (
           <div className="space-y-3">
-            {memories.map((mem) => (
-              <MemoryCard key={mem.id} memory={mem} />
+            {visibleMemories.map((mem) => (
+              <div key={mem.id} className="relative">
+                {showingExamples && (
+                  <span className="absolute right-3 top-3 z-10 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-800">
+                    Demo example
+                  </span>
+                )}
+                <MemoryCard memory={mem} />
+              </div>
             ))}
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
             <Brain className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-sm font-semibold text-slate-700">No Memories Found</p>
+            <p className="text-sm font-semibold text-slate-700">{showingExamples ? 'No matching demo examples' : 'No Memories Found'}</p>
             <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              Verify an invoice in InvoiceGuard and click "Confirm Decision & Retain in Hindsight" to store your first experience.
+              {showingExamples
+                ? 'Clear the search to see the sample cases. Real memories appear after Hindsight is connected and an invoice decision is retained.'
+                : 'Verify an invoice in InvoiceGuard and click "Confirm Decision & Retain in Hindsight" to store your first experience.'}
             </p>
           </div>
         )}
