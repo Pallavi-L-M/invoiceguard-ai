@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Sparkles, FileText, CheckCircle2, Download } from 'lucide-react';
 import FileUpload from '../components/FileUpload';
 import InvoiceForm from '../components/InvoiceForm';
 import { uploadInvoice, saveInvoice } from '../api/client';
@@ -63,7 +63,7 @@ export default function InvoiceUpload() {
   };
 
   // Demo Case Fillers
-  const loadDemoCase = (caseNum: 1 | 2 | 3) => {
+  const loadDemoCase = (caseNum: 1 | 2 | 3 | 4) => {
     if (caseNum === 1) {
       // Case 1: Duplicate invoice
       setFormValues({
@@ -76,7 +76,7 @@ export default function InvoiceUpload() {
         taxAmount: 3814,
         total: 25000,
       });
-      setUploadedFileName('Demo_Case_1_ABC_Tech_Duplicate.pdf');
+      setUploadedFileName('Case_1_ABC_Technologies_Duplicate_INV-1001.pdf');
       setOcrConfidence(0.98);
       setUploadError(undefined);
     } else if (caseNum === 2) {
@@ -91,7 +91,7 @@ export default function InvoiceUpload() {
         taxAmount: 1000,
         total: 11800, // Should be 11,000! Discrepancy of 800
       });
-      setUploadedFileName('Demo_Case_2_Global_Supplies_TaxErr.pdf');
+      setUploadedFileName('Case_2_Global_Supplies_Tax_Mismatch_INV-1002.pdf');
       setOcrConfidence(0.95);
       setUploadError(undefined);
     } else if (caseNum === 3) {
@@ -106,8 +106,23 @@ export default function InvoiceUpload() {
         taxAmount: 14492,
         total: 95000, // Baseline for Bright Solutions is ~12k-14k!
       });
-      setUploadedFileName('Demo_Case_3_Bright_Solutions_Spike.pdf');
+      setUploadedFileName('Case_3_Bright_Solutions_Unusual_Spike_INV-1003.pdf');
       setOcrConfidence(0.97);
+      setUploadError(undefined);
+    } else if (caseNum === 4) {
+      // Case 4: Clean compliant invoice
+      setFormValues({
+        invoiceNumber: 'APX-9940',
+        vendorName: 'Apex Logistics Ltd',
+        invoiceDate: '2026-11-06',
+        dueDate: '2026-12-06',
+        subtotal: 32000,
+        taxRate: 12,
+        taxAmount: 3840,
+        total: 35840,
+      });
+      setUploadedFileName('Case_4_Apex_Logistics_Clean_Verified_APX-9940.pdf');
+      setOcrConfidence(0.99);
       setUploadError(undefined);
     }
   };
@@ -118,41 +133,89 @@ export default function InvoiceUpload() {
       <div>
         <h1 className="text-xl font-bold text-slate-900 tracking-tight">Upload & Process Invoice</h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Extract text via automated OCR or load a demonstration sample for verification
+          Extract text via automated OCR, upload sample test PDF files, or auto-fill hackathon cases
         </p>
       </div>
 
-      {/* Demo Quick-Fill Bar */}
-      <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-4">
+      {/* Sample PDF Documents Download & Quick-Fill Bar */}
+      <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-4 space-y-3">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-600" />
-            <span className="text-xs font-bold text-indigo-900">Hackathon Demonstration Test Cases:</span>
+            <span className="text-xs font-bold text-indigo-900">1-Click Auto-Fill Demo Cases:</span>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => loadDemoCase(1)}
-              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-sm transition-all cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-xs transition-all cursor-pointer"
             >
-              Case 1: Duplicate (ABC Tech ₹25,000)
+              Case 1: Duplicate (ABC Tech ₹25k)
             </button>
             <button
               onClick={() => loadDemoCase(2)}
-              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-sm transition-all cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-xs transition-all cursor-pointer"
             >
               Case 2: Tax Mismatch (Global Supplies)
             </button>
             <button
               onClick={() => loadDemoCase(3)}
-              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-sm transition-all cursor-pointer"
+              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-xs transition-all cursor-pointer"
             >
-              Case 3: Unusual Spike (Bright Solutions ₹95,000)
+              Case 3: Spike (Bright Solutions ₹95k)
             </button>
+            <button
+              onClick={() => loadDemoCase(4)}
+              className="px-3 py-1.5 rounded-lg bg-white border border-indigo-300 hover:border-indigo-500 text-xs font-semibold text-slate-800 hover:text-indigo-600 shadow-xs transition-all cursor-pointer"
+            >
+              Case 4: Verified Clean (Apex Logistics)
+            </button>
+          </div>
+        </div>
+
+        {/* Downloadable PDF Samples */}
+        <div className="pt-2 border-t border-indigo-200/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+          <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+            <Download className="h-3.5 w-3.5 text-indigo-600" />
+            Download Sample Invoice Documents to test Drag & Drop:
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href="/samples/Case_1_ABC_Technologies_Duplicate_INV-1001.pdf"
+              download="Case_1_ABC_Technologies_Duplicate_INV-1001.pdf"
+              className="inline-flex items-center gap-1 text-[11px] text-indigo-700 bg-white/80 hover:bg-white px-2.5 py-1 rounded-md border border-indigo-200 hover:border-indigo-400 font-medium transition-colors"
+            >
+              <FileText className="h-3 w-3 text-indigo-500" />
+              Case 1 PDF
+            </a>
+            <a
+              href="/samples/Case_2_Global_Supplies_Tax_Mismatch_INV-1002.pdf"
+              download="Case_2_Global_Supplies_Tax_Mismatch_INV-1002.pdf"
+              className="inline-flex items-center gap-1 text-[11px] text-indigo-700 bg-white/80 hover:bg-white px-2.5 py-1 rounded-md border border-indigo-200 hover:border-indigo-400 font-medium transition-colors"
+            >
+              <FileText className="h-3 w-3 text-indigo-500" />
+              Case 2 PDF
+            </a>
+            <a
+              href="/samples/Case_3_Bright_Solutions_Unusual_Spike_INV-1003.pdf"
+              download="Case_3_Bright_Solutions_Unusual_Spike_INV-1003.pdf"
+              className="inline-flex items-center gap-1 text-[11px] text-indigo-700 bg-white/80 hover:bg-white px-2.5 py-1 rounded-md border border-indigo-200 hover:border-indigo-400 font-medium transition-colors"
+            >
+              <FileText className="h-3 w-3 text-indigo-500" />
+              Case 3 PDF
+            </a>
+            <a
+              href="/samples/Case_4_Apex_Logistics_Clean_Verified_APX-9940.pdf"
+              download="Case_4_Apex_Logistics_Clean_Verified_APX-9940.pdf"
+              className="inline-flex items-center gap-1 text-[11px] text-indigo-700 bg-white/80 hover:bg-white px-2.5 py-1 rounded-md border border-indigo-200 hover:border-indigo-400 font-medium transition-colors"
+            >
+              <FileText className="h-3 w-3 text-indigo-500" />
+              Case 4 PDF
+            </a>
           </div>
         </div>
       </div>
 
-      {/* Two Column Layout: Upload on left, info on right */}
+      {/* Two Column Layout: Upload on left, form on right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
